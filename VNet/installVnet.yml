@@ -1,0 +1,40 @@
+parameters:
+- name: envname
+  type: string
+- name: region
+  type: string
+- name: instance
+  type: string
+- name: ename
+  type: string 
+- name: internalstageenvparameter
+  type: string
+- name: functionApps    
+  type: object
+  default: '' 
+stages:
+- stage: deployVnetresources
+  displayName: Deploy VNET Resources
+  variables:
+  - template: /build/cicd/templates/variabletemplates/variabletemplate_shared.yml
+    parameters:        
+        internalstageenvparameter: ${{ parameters.internalstageenvparameter }}  
+  - template: /build/cicd/templates/variabletemplates/variabletemplate_${{parameters.ename}}.yml
+  pool:
+      name: '$(DeployAgentPool)'  
+  jobs:  
+  - job: Deploy
+    displayName: 'Deploy VNET Resources to ${{parameters.ename}}'    
+    steps:
+    - task: PowerShell@2
+      displayName: Setting up Pipeline Name
+      inputs:
+        targetType: 'inline'
+        script: |
+                echo "##vso[build.updatebuildnumber] ${{parameters.envname}}_${{parameters.region}}_${{parameters.instance}}"   
+    - template: /build/cicd/templates/deploy/deployVnet.yml
+      parameters:
+        serviceconn: ${{ variables.imhazureSubscription }}
+        internalstageenvparameter: ${{ parameters.internalstageenvparameter }}
+
+            
