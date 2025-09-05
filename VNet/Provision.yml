@@ -1,0 +1,35 @@
+parameters:
+- name: environmenttype
+  type: string
+  displayName: Environment Type
+  values:
+  - dev
+  - qA 
+  - nprd  
+  - prod
+- name: region
+  type: string
+  displayName: Azure Region (ueast = US East, uwest = US West)
+  values:
+  - eastus
+  - westus 
+  - seasia 
+- name: Instance
+  type: string
+  default: 01
+  displayName: Instance
+- name: internalstage
+  type: string
+  default: standard
+  displayName: InternalStage/ResourceGroup Name
+
+name: $(Date:yyyyMMdd)$(Rev:.r)
+trigger: none
+stages:
+- template: installVnet.yml
+  parameters:
+    envname: ${{parameters.environmenttype}}
+    region: ${{parameters.region}}
+    instance: ${{parameters.Instance}}    
+    ename: ${{parameters.environmenttype}}_${{parameters.region}}_${{parameters.Instance}}
+    internalstageenvparameter: ${{ parameters.internalstage }}
