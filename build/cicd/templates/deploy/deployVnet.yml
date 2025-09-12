@@ -1,0 +1,162 @@
+parameters:
+- name: serviceconn
+  type: string
+- name: internalstageenvparameter
+  type: string
+
+steps:
+- task: AzureCLI@2
+  displayName: 'Deploy VNet and Configure Network Access'
+  inputs:
+    azureSubscription: ${{ parameters.serviceconn }}
+    scriptType: 'bash'
+    scriptLocation: 'inlineScript'
+    inlineScript: |
+      # Set variables
+      RESOURCE_GROUP="rg-${{ parameters.internalstageenvparameter }}"
+      VNET_NAME="vnet-${{ parameters.internalstageenvparameter }}"
+      SUBNET_NAME="subnet-${{ parameters.internalstageenvparameter }}"
+      NAT_GATEWAY_NAME="nat-gateway-${{ parameters.internalstageenvparameter }}"
+      PUBLIC_IP_NAME="pip-nat-${{ parameters.internalstageenvparameter }}"
+      FUNCTION_APP_NAME="func-app-${{ parameters.internalstageenvparameter }}"
+      WEB_APP_NAME="web-app-${{ parameters.internalstageenvparameter }}"
+      APP_SERVICE_PLAN="asp-${{ parameters.internalstageenvparameter }}"
+      
+      echo "Starting VNet deployment and configuration..."
+      
+      # Create Resource Group
+      echo "Creating resource group: $RESOURCE_GROUP"
+      az group create --name $RESOURCE_GROUP --location eastus
+      
+      # Create Public IP for NAT Gateway
+      echo "Creating public IP for NAT Gateway: $PUBLIC_IP_NAME"
+      az network public-ip create \
+        --resource-group $RESOURCE_GROUP \
+        --name $PUBLIC_IP_NAME \
+        --sku Standard \
+        --allocation-method Static
+      
+      # Create NAT Gateway
+      echo "Creating NAT Gateway: $NAT_GATEWAY_NAME"
+      az network nat gateway create \
+        --resource-group $RESOURCE_GROUP \
+        --name $NAT_GATEWAY_NAME \
+        --public-ip-addresses $PUBLIC_IP_NAME \
+        --idle-timeout 4
+      
+      # Create VNet and Subnet
+      echo "Creating VNet: $VNET_NAME"
+      az network vnet create \
+        --resource-group $RESOURCE_GROUP \
+        --name $VNET_NAME \
+        --address-prefix 10.0.0.0/16 \
+        --subnet-name $SUBNET_NAME \
+        --subnet-prefix 10.0.1.0/24
+      
+      # Associate NAT Gateway with Subnet
+      echo "Associating NAT Gateway with subnet"
+      az network vnet subnet update \
+        --resource-group $RESOURCE_GROUP \
+        --vnet-name $VNET_NAME \
+        --name $SUBNET_NAME \
+        --nat-gateway $NAT_GATEWAY_NAME
+      
+      # Create App Service Plan
+      echo "Creating App Service Plan: $APP_SERVICE_PLAN"
+      az appservice plan create \
+        --name $APP_SERVICE_PLAN \
+        --resource-group $RESOURCE_GROUP \
+        --sku P1V2 \
+        --is-linux
+      
+      # Create Function App
+      echo "Creating Function App: $FUNCTION_APP_NAME"
+      az functionapp create \
+        --resource-group $RESOURCE_GROUP \
+        --plan $APP_SERVICE_PLAN \
+        --name $FUNCTION_APP_NAME \
+        --storage-account "storage${{ parameters.internalstageenvparameter }}" \
+        --runtime python \
+        --runtime-version 3.9
+      
+      # Create Web App
+      echo "Creating Web App: $WEB_APP_NAME"
+      az webapp create \
+        --resource-group $RESOURCE_GROUP \
+        --plan $APP_SERVICE_PLAN \
+        --name $WEB_APP_NAME \
+        --runtime "PYTHON|3.9"
+      
+      # Configure VNet Integration for Function App
+      echo "Configuring VNet integration for Function App"
+      az functionapp vnet-integration add \
+        --resource-group $RESOURCE_GROUP \
+        --name $FUNCTION_APP_NAME \
+        --vnet $VNET_NAME \
+        --subnet $SUBNET_NAME
+      
+      # Configure VNet Integration for Web App
+      echo "Configuring VNet integration for Web App"
+      az webapp vnet-integration add \
+        --resource-group $RESOURCE_GROUP \
+        --name $WEB_APP_NAME \
+        --vnet $VNET_NAME \
+        --subnet $SUBNET_NAME
+      
+      # Configure outbound traffic routing for Function App
+      echo "Configuring outbound traffic routing for Function App"
+      az functionapp config appsettings set \
+        --resource-group $RESOURCE_GROUP \
+        --name $FUNCTION_APP_NAME \
+        --settings WEBSITE_VNET_ROUTE_ALL=1
+      
+      # Configure outbound traffic routing for Web App
+      echo "Configuring outbound traffic routing for Web App"
+      az webapp config appsettings set \
+        --resource-group $RESOURCE_GROUP \
+        --name $WEB_APP_NAME \
+        --settings WEBSITE_VNET_ROUTE_ALL=1
+      
+
+      
+      echo "=== VERIFICATION STEPS ==="
+      
+      # Verify VNet Integration
+      echo "Verifying VNet integration for Function App"
+      az functionapp vnet-integration list \
+        --resource-group $RESOURCE_GROUP \
+        --name $FUNCTION_APP_NAME
+      
+      echo "Verifying VNet integration for Web App"
+      az webapp vnet-integration list \
+        --resource-group $RESOURCE_GROUP \
+        --name $WEB_APP_NAME
+      
+      # Verify outbound configuration
+      echo "Verifying outbound configuration for Function App"
+      az functionapp config appsettings list \
+        --resource-group $RESOURCE_GROUP \
+        --name $FUNCTION_APP_NAME \
+        --query "[?name=='WEBSITE_VNET_ROUTE_ALL']"
+      
+      echo "Verifying outbound configuration for Web App"
+      az webapp config appsettings list \
+        --resource-group $RESOURCE_GROUP \
+        --name $WEB_APP_NAME \
+        --query "[?name=='WEBSITE_VNET_ROUTE_ALL']"
+      
+      # Verify subnet and NAT gateway configuration
+      echo "Verifying subnet configuration"
+      az network vnet subnet show \
+        --resource-group $RESOURCE_GROUP \
+        --vnet-name $VNET_NAME \
+        --name $SUBNET_NAME \
+        --query "natGateway"
+      
+      echo "Verifying NAT gateway configuration"
+      az network nat gateway show \
+        --resource-group $RESOURCE_GROUP \
+        --name $NAT_GATEWAY_NAME \
+        --query "{name:name, publicIpAddresses:publicIpAddresses, subnets:subnets}"
+      
+      echo "VNet deployment and configuration completed successfully!"
